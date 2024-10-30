@@ -8,9 +8,11 @@
 
 #define STD_C_ERROR -1
 
-#define PORT        80
-#define FILE_NAME   "/res/cat.jpg"
-#define MIME_TYPE   "image/jpg"
+#define PORT          80
+#define FILE_NAME     "/res/cat.jpg"
+#define MIME_TYPE     "image/jpg"
+#define USER_NAME     ""
+#define USER_PASSWORD ""
 
 MHD_Result Print_Out_Key(
 	void* cls, enum MHD_ValueKind kind, 
@@ -41,16 +43,34 @@ MHD_Result Answer_To_Connection(
 	
 	//handling GET-request
 	if (strcmp("GET", method) != 0) return MHD_NO;
-	if (*con_cls == NULL) {*con_cls = connection; return MHD_YES}
+	if (*con_cls == NULL) {*con_cls = connection; return MHD_YES;}
 	
 	//handling authentication
 	password = NULL;
 	username = MHD_basic_auth_get_username_password(connection, &password);
-	access_fail = ((username == NULL) ||
-				   (password == NULL) ||
-				   ());
+	access_fail = ((username == NULL) 				  ||
+				   (strcmp(username, USER_NAME) != 0) ||
+				   (strcmp(password, USER_PASSWORD) != 0));
 	
+	if (username != NULL) MHD_free(username);
+	if (password != NULL) MHD_free(password);
 	
+	if (access_fail != NULL) 
+	{
+		const char* error_str = "<html><body>Access failed</body></html>";
+		response = MHD_create_response_from_buffer(strlen(error_str), (void*)error_str, MHD_RESPMEM_PERSISTENT);
+		ret = MHD_queue_basic_auth_fail_response(connection, "Main Realm", response);
+		
+		return MHD_NO;
+	}
+	else 
+	{
+		const char* page = "<html><body>Access succeed</body></html>";
+		response = MHD_create_response_from_buffer(strlen(page), (void*)page, MHD_RESPMEM_PERSISTENT);
+		ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
+	}
+	
+	//response file errors handling
 	if (((response_file = fopen(FILE_NAME, "r"))    == NULL) ||
 		 (fstat(_fileno(response_file), &file_stat) == STD_C_ERROR))
 	{
@@ -83,7 +103,7 @@ int main(
 	try 
 	{
 		const char* connect_info = "host=localhost port=5432 dbname=bank_db user=postgres password=111";
-		PGconn* connection       = PQconnectdb(connect_info);
+		PGconn* 	connection   = PQconnectdb(connect_info);
 
 		//checking connetction to data base
 		if (PQstatus(connection) != CONNECTION_OK)
