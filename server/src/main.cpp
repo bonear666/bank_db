@@ -13,6 +13,9 @@
 #define MIME_TYPE     "image/jpg"
 #define USER_NAME     ""
 #define USER_PASSWORD ""
+#define REQUEST_BUFFER_LENGTH 150
+
+char* db_request_buffer;
 
 MHD_Result Print_Out_Key(
 	void* cls, enum MHD_ValueKind kind, 
@@ -23,6 +26,51 @@ MHD_Result Print_Out_Key(
 	return MHD_YES;
 };
 
+//member_type('e' means employee, 'c' means client), request_res - sql-request result storage
+int DB_Auth_Request(char member_type, const char* username, const char* password, PGresult** request_result)
+{
+	*request_result = NULL;
+	
+	switch (member_type)
+	{
+		case 'e':
+		strcat(db_request_buffer, "SELECT employee_login, employee_password \
+								   FROM employee_account \
+								   WHERE employee_login = ");
+		strcat(db_request_buffer, username);
+		strcat(db_request_buffer, " ");
+		strcat(db_request_buffer, "AND employee_password = ");
+		strcat(db_request_buffer, password);
+		strcat(db_request_buffer, ";");
+		
+		*request_result = PQexec(db_connection, db_request_buffer);
+		break;
+		
+		case 'c':
+		strcat(db_request_buffer, "SELECT client_login, client_password \
+								   FROM client_account \
+								   WHERE client_login = ");
+		strcat(db_request_buffer, username);
+		strcat(db_request_buffer, " ");
+		strcat(db_request_buffer, "AND client_password = ");
+		strcat(db_request_buffer, password);
+		strcat(db_request_buffer, ";");
+		
+		*request_result = PQexec(db_connection, db_request_buffer);
+		break;
+	}	
+	
+	if (*request_result != NULL)
+	{
+		if (PQntuples(*request_result) != 0) {return EXIT_SUCCESS;}
+		else 								 {return EXIT_FAILURE;}
+	} 
+	else
+	{
+		return EXIT_FAILURE;
+	}
+};
+
 MHD_Result Answer_To_Connection(
 	void* cls, struct MHD_Connection* connection,
 	const char* url, const char* method,
@@ -30,9 +78,9 @@ MHD_Result Answer_To_Connection(
 	size_t* upload_data_size, void** con_cls) 
 {
 	struct MHD_Response* response;
-	MHD_Result           ret;
-	FILE*                response_file;
-	struct stat          file_stat;
+	MHD_Result			 ret;
+	FILE*				 response_file;
+	struct stat 		 file_stat;
 	char* 				 username;
 	char* 				 password;
 	int 				 access_fail;
@@ -71,7 +119,7 @@ MHD_Result Answer_To_Connection(
 	}
 	
 	//response file errors handling
-	if (((response_file = fopen(FILE_NAME, "r"))    == NULL) ||
+	if (((response_file = fopen(FILE_NAME, "r"))	== NULL) ||
 		 (fstat(_fileno(response_file), &file_stat) == STD_C_ERROR))
 	{
 		const char* error_str = "<html><body>An internal server error has occurred!</body></html>";
@@ -103,16 +151,19 @@ int main(
 	try 
 	{
 		const char* connect_info = "host=localhost port=5432 dbname=bank_db user=postgres password=111";
-		PGconn* 	connection   = PQconnectdb(connect_info);
+		PGconn* db_connection = PQconnectdb(connect_info);
 
 		//checking connetction to data base
-		if (PQstatus(connection) != CONNECTION_OK)
+		if (PQstatus(db_connection) != CONNECTION_OK)
 		{	
 			printf("Bad connection\n");
 			getchar();
 
 			return EXIT_FAILURE;
 		}
+		
+		db_request_buffer = (char*)malloc(REQUEST_BUFFER_LENGTH);
+		db_request_buffer[0] = NULL;
 		
 		//creating and starting web-server daemon
 		struct MHD_Daemon* daemon;
