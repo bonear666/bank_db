@@ -7,20 +7,30 @@
 #include <microhttpd.h>
 
 #define C_STD_ERROR -1
-#define HOST_NAME_OFFSET (sizeof("http://") - 1)
 
 #define PORT 80
 #define FILE_NAME "/res/cat.jpg"
+
 #define HOME_PAGE_NAME "/res/home_page.html"
+#define EMPLOYEE_PAGE_NAME "/res/employee_page.html"
+#define CLIENT_PAGE_NAME "/res/client_page.html"
+
 #define MIME_TYPE "image/jpg"
 #define MIME_HTML "text/html; charset=UTF-8"
+#define MIME_JPEG "image/jpeg"
+
 #define USER_NAME ""
 #define USER_PASSWORD ""
+
 #define REQUEST_BUFFER_LENGTH 150
+#define HEADER_VALUES_BUFFER_LENGTH 150
+
 #define HOST_NAME "sigma-bank.ru"
 #define HOST_NAME_LENGTH 14 //null-terminated 
+#define HOST_NAME_OFFSET (sizeof("http://") - 1)
 
-char* db_request_buffer;
+char* db_request_buffer = NULL;
+char* header_values_buffer= NULL;
 const char* const page_names[] = 
 {
 	"sigma-bank.ru",
@@ -39,6 +49,25 @@ MHD_Result Print_Out_Key(
 	printf("%s: %s\n", key, value);
 
 	return MHD_YES;
+};
+
+MHD_Result Sending_Response(FILE** response_file, stat* file_stat, const char* resource_file_name, const char* header_field, const char* mime_type, MHD_Response** response, MHD_Connection** connection) 
+{
+	if (((*response_file = fopen(resource_file_name, "r")) == NULL) ||
+		 (fstat(_fileno(*response_file), &file_stat) == C_STD_ERROR))
+	{
+		Iternal_Error_Handling();
+
+		return MHD_NO;
+	}
+
+	//sending response
+	*response = MHD_create_response_from_fd_at_offset64(file_stat.st_size, _fileno(*response_file), 0);
+	MHD_add_response_header(*response, header_field, mime_type);
+	ret = MHD_queue_response(*connection, MHD_HTTP_OK, *response);
+	MHD_destroy_response(*response);
+
+	return ret;
 };
 
 //member_type('e' means employee, 'c' means client), request_res - sql-request result storage
@@ -90,12 +119,12 @@ MHD_Result Answer_To_Connection(
 	size_t* upload_data_size, void** con_cls) 
 {
 	struct MHD_Response* response;
-	MHD_Result			 ret;
-	FILE*				 response_file;
-	struct stat 		 file_stat;
-	char* 				 username;
-	char* 				 password;
-	int 				 access_fail;
+	MHD_Result ret = MHD_NO;
+	FILE* response_file;
+	struct stat file_stat;
+	char* username;
+	char* password;
+	int access_fail;
 	
 	//printing connection info
 	printf("New %s request for %s using version %s\n", method, url, version);
@@ -109,35 +138,45 @@ MHD_Result Answer_To_Connection(
 	//home page has been requsted
 	if 		(strcmp(url + HOST_NAME_OFFSET, page_names[0]) == 0)
 	{
-		if (((response_file = fopen(HOME_PAGE_NAME, "r")) == NULL) ||
-			 (fstat(_fileno(response_file), &file_stat)   == C_STD_ERROR))
-			 {
-				 Iternal_Error_Handling();
-				 
-				 return MHD_NO;
-			 }
-		
-		response = MHD_create_response_from_fd_at_offset64(file_stat.st_size, _fileno(response_file), 0);
-		MHD_add_response_header(response, "Content-Type", MIME_HTML);
-		ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
-		MHD_destroy_response(response);
+		ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, "Content-Type", MIME_HTML, &response, &connection);
 		
 		return ret;
 	}
 	//employee page has been requested
 	else if (strcmp(url + HOST_NAME_OFFSET, page_names[1]) == 0)
 	{
-		
+		ret = Sending_Response(&response_file, &file_stat, EMPLOYEE_PAGE_NAME, "Content-Type", MIME_HTML, &response, &connection);
+
+		return ret;
 	}
 	//clinet page has been requested
 	else if (strcmp(url + HOST_NAME_OFFSET, page_names[2]) == 0)
 	{
-		
+		ret = Sending_Response(&response_file, &file_stat, CLIENT_PAGE_NAME, "Content-Type", MIME_HTML, &response, &connection);
+
+		return ret;
 	}
-	//page resource has been requested
-	else if (strcmp(url, "/res/") > 0)
+	//page resource has been requested(http-request url contains resource path)
+	else if (strncmp(url, "/res/", 5) == 0)
 	{
+		ret = MHD_NO;
+		const char* header_values = NULL;
+		size_t header_values_size = NULL;
 		
+		MHD_lookup_connection_value_n(connection, MHD_HEADER_KIND, "Accept", &header_values, &header_values_size);
+		
+		if (strncmp(header_values, "image/", 6) == 0)
+		{
+			ret = Sending_Response(&response_file, &file_stat, url, "Content-Type", MIME_JPEG, &response, &connection);
+			
+			return ret;
+		}
+		else if (strncmp(header_values, "text/", 5) == 0)
+		{
+			ret = Sending_Response(&response_file, &file_stat, url, "Content-Type", , &response, &connection);
+			
+			return ret;
+		}
 	}
 	
 	//handling authentication
@@ -211,6 +250,8 @@ int main(
 		
 		db_request_buffer = (char*)malloc(REQUEST_BUFFER_LENGTH);
 		db_request_buffer[0] = NULL;
+		header_values_buffer = (char*)malloc(HEADER_VALUES_BUFFER_LENGTH);
+		header_values_buffer[0] = NULL;
 		
 		//creating and starting web-server daemon
 		struct MHD_Daemon* daemon;
