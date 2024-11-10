@@ -51,12 +51,28 @@ MHD_Result Print_Out_Key(
 	return MHD_YES;
 };
 
-MHD_Result Sending_Response(FILE** response_file, stat* file_stat, const char* resource_file_name, const char* header_field, const char* mime_type, MHD_Response** response, MHD_Connection** connection) 
+int DB_Get_Full_Private_Table(int member_id, char member_type, PGresult** request_result)
+{
+	*request_result = NULL;
+	
+	switch(member_type)
+	{
+		case 'e':
+		strcat(db_request_buffer, );
+		break;
+		
+		case 'c':
+		strcat(db_request_buffer, );
+		break;
+	}
+};
+
+MHD_Result Sending_Response(FILE** response_file, stat* file_stat, const char* resource_file_name, int member_id, const char* header_field, const char* mime_type, MHD_Response** response, MHD_Connection** connection) 
 {
 	if (((*response_file = fopen(resource_file_name, "r")) == NULL) ||
 		 (fstat(_fileno(*response_file), &file_stat) == C_STD_ERROR))
 	{
-		Iternal_Error_Handling();
+		Iternal_Error_Handling(NULL);
 
 		return MHD_NO;
 	}
@@ -71,7 +87,7 @@ MHD_Result Sending_Response(FILE** response_file, stat* file_stat, const char* r
 };
 
 //member_type('e' means employee, 'c' means client), request_res - sql-request result storage
-int DB_Auth_Request(char member_type, const char* username, const char* password, PGresult** request_result)
+int DB_Auth_Request(char member_type, const char* username, const char* password, PGresult** request_result, int* member_id)
 {
 	*request_result = NULL;
 	
@@ -106,7 +122,12 @@ int DB_Auth_Request(char member_type, const char* username, const char* password
 	
 	if (*request_result != NULL)
 	{
-		if (PQntuples(*request_result) != 0) {return EXIT_SUCCESS;}
+		if (PQntuples(*request_result) != 0) 
+		{
+			*member_id = atoi(PQgetvalue(*request_result, 0, 0)); 
+			
+			return EXIT_SUCCESS;
+		}
 	} 
 
 	return EXIT_FAILURE;
@@ -122,9 +143,12 @@ MHD_Result Answer_To_Connection(
 	MHD_Result ret = MHD_NO;
 	FILE* response_file;
 	struct stat file_stat;
-	char* username;
-	char* password;
+	char* username = NULL;
+	char* password = NULL;
+	int member_id = 0;
 	int access_fail;
+	int access_res;
+	PGresult* request_result;
 	
 	//printing connection info
 	printf("New %s request for %s using version %s\n", method, url, version);
@@ -134,25 +158,67 @@ MHD_Result Answer_To_Connection(
 	if (strcmp("GET", method) != 0) return MHD_NO;
 	if (*con_cls == NULL) {*con_cls = connection; return MHD_YES;}
 	
-	//url exploration (http, no secure)
+	//url exploration (http, no secure)(const char* url mb contains only urn, hostname contains in same-name header field)
 	//home page has been requsted
 	if 		(strcmp(url + HOST_NAME_OFFSET, page_names[0]) == 0)
 	{
-		ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, "Content-Type", MIME_HTML, &response, &connection);
+		if 		(strncmp(upload_data, "Clinet Auth Req", 15) == 0)
+		{
+			username = MHD_basic_auth_get_username_password(connection, &password);
+			
+			access_res = DB_Auth_Request('c', username, password, &request_result, &member_id);
+			
+			if (access_res == EXIT_SUCCESS)
+			{
+				ret = Sending_Response(&response_file, &file_stat, CLIENT_PAGE_NAME, member_id, "Content-Type", MIME_HTML, &response, &connection);
+			}
+			else
+			{
+				Iternal_Error_Handling("Wrong client info or Iternal error occured");
+				
+				ret = MHD_NO;
+			}
+			
+			if (request_result != NULL) {PQclear(request_result);}
+			
+			return ret;
+		}
+		else if (strncmp(upload_data, "Employee Auth Req", 17) == 0)
+		{
+			username = MHD_basic_auth_get_username_password(connection, &password);
+			
+			access_res = DB_Auth_Request('e', username, password, &request_result, &member_id);
+			
+			if (access_res == EXIT_SUCCESS)
+			{
+				ret = Sending_Response(&response_file, &file_stat, EMPLOYEE_PAGE_NAME, member_id, "Content-Type", MIME_HTML, &response, &connection);
+			}
+			else
+			{
+				Iternal_Error_Handling("Wrong employee info or Iternal error occured");
+				
+				ret = MHD_NO;
+			}
+			
+			if (request_result != NULL) {PQclear(request_result);}
+			
+			return ret;
+		}
+		ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
 		
 		return ret;
 	}
 	//employee page has been requested
 	else if (strcmp(url + HOST_NAME_OFFSET, page_names[1]) == 0)
 	{
-		ret = Sending_Response(&response_file, &file_stat, EMPLOYEE_PAGE_NAME, "Content-Type", MIME_HTML, &response, &connection);
+		ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
 
 		return ret;
 	}
 	//clinet page has been requested
 	else if (strcmp(url + HOST_NAME_OFFSET, page_names[2]) == 0)
 	{
-		ret = Sending_Response(&response_file, &file_stat, CLIENT_PAGE_NAME, "Content-Type", MIME_HTML, &response, &connection);
+		ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
 
 		return ret;
 	}
@@ -165,7 +231,7 @@ MHD_Result Answer_To_Connection(
 		
 		MHD_lookup_connection_value_n(connection, MHD_HEADER_KIND, "Accept", &header_values, &header_values_size);
 		
-		if (strncmp(header_values, "image/", 6) == 0)
+		if 		(strncmp(header_values, "image/", 6) == 0)
 		{
 			ret = Sending_Response(&response_file, &file_stat, url, "Content-Type", MIME_JPEG, &response, &connection);
 			
@@ -173,7 +239,7 @@ MHD_Result Answer_To_Connection(
 		}
 		else if (strncmp(header_values, "text/", 5) == 0)
 		{
-			ret = Sending_Response(&response_file, &file_stat, url, "Content-Type", , &response, &connection);
+			//ret = Sending_Response(&response_file, &file_stat, url, "Content-Type", , &response, &connection);
 			
 			return ret;
 		}
