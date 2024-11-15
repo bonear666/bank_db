@@ -8,6 +8,15 @@
 
 #define C_STD_ERROR -1
 
+#define FIND_CLIENT_PRIVATE ""
+#define FIND_EMPLOYEE_PRIVATE ""
+
+#define FIND_CLIENT_PRIVATE_FILE_SIZE
+#define FIND_EMPLOYEE_PRIVATE_FILE_SIZE
+
+#define FIND_CLIENT_PRIVATE_MEMBER_ID_POS
+#define FIND_EMPLOYEE_PRIVATE_MEMBER_ID_POS
+
 #define PORT 80
 #define FILE_NAME "/res/cat.jpg"
 
@@ -29,7 +38,9 @@
 #define HOST_NAME_LENGTH 14 //null-terminated 
 #define HOST_NAME_OFFSET (sizeof("http://") - 1)
 
+PGconn* db_connection = NULL;
 char* db_request_buffer = NULL;
+size_t db_request_buffer_size = 0;
 char* header_values_buffer= NULL;
 const char* const page_names[] = 
 {
@@ -51,20 +62,94 @@ MHD_Result Print_Out_Key(
 	return MHD_YES;
 };
 
+int Request_Result_To_String(char* string_buffer, PGresult** request_result, int request_type)
+{
+	int rows = PQntuples(*request_result);
+	int columns = PQnfields(*request_result);
+	
+	switch(request_type)
+	{
+		case 1: // private table request handling
+		for (int i = 0; i < rows; i++)
+		{
+			for (int j = 0; j < columns; j++)
+			{
+				
+			}
+		}
+		
+		break;
+	}
+};
+
 int DB_Get_Full_Private_Table(int member_id, char member_type, PGresult** request_result)
 {
 	*request_result = NULL;
+	FILE* request_file = NULL;
+	size_t write_counter = 0;
+	char member_id_str[11] = NULL; //null-terminated
+	int member_id_length = 0; //not counting the terminating null character
+	
+	if ((member_id_length = sprintf(member_id_str, "%d", member_id)) == C_STD_ERROR)
+	{
+		Iternal_Error_Handling(NULL);
+		
+		return EXIT_FAILURE;
+	}
+	
+	if ((request_file = fopen(FILE_NAME, "r")) == NULL))
+	{
+		Iternal_Error_Handling("File error");
+		
+		return EXIT_FAILURE;
+	}
+	
+	if (db_request_buffer_size < (FIND_CLIENT_PRIVATE_FILE_SIZE + 1))
+	{
+		void* new_buffer = realloc((void*)db_request_buffer, FIND_CLIENT_PRIVATE_FILE_SIZE + 1);
+		if (new_buffer == NULL)
+		{
+			Iternal_Error_Handling(NULL);
+		
+			return EXIT_FAILURE;
+		}
+		
+		db_request_buffer = (char*)new_buffer;
+		db_request_buffer_size = FIND_CLIENT_PRIVATE_FILE_SIZE + 1;
+		new_buffer = NULL;
+	}
+	
+	if ((db_request_buffer = fgets(db_request_buffer, FIND_CLIENT_PRIVATE_FILE_SIZE, request_file)) == NULL)
+	{
+		Iternal_Error_Handling(NULL);
+		
+		return EXIT_FAILURE;
+	}
+	
+	fclose(request_file);
 	
 	switch(member_type)
 	{
 		case 'e':
-		strcat(db_request_buffer, );
 		break;
 		
 		case 'c':
-		strcat(db_request_buffer, );
+		memcpy(
+		(void*)(db_request_buffer + FIND_CLIENT_PRIVATE_MEMBER_ID_POS + (10 - member_id_length)), 
+		(void*)member_id_str, member_id_length);
+		
+		*request_result = PQexec(db_connection, db_request_buffer);
 		break;
 	}
+	
+	if (*request_result == NULL)
+	{
+		Iternal_Error_Handling(NULL);
+		
+		return EXIT_FAILURE;
+	} 
+	
+	return EXIT_SUCCESS;
 };
 
 MHD_Result Sending_Response(FILE** response_file, stat* file_stat, const char* resource_file_name, int member_id, const char* header_field, const char* mime_type, MHD_Response** response, MHD_Connection** connection) 
@@ -233,7 +318,7 @@ MHD_Result Answer_To_Connection(
 		
 		if 		(strncmp(header_values, "image/", 6) == 0)
 		{
-			ret = Sending_Response(&response_file, &file_stat, url, "Content-Type", MIME_JPEG, &response, &connection);
+			ret = Sending_Response(&response_file, &file_stat, url, 0, "Content-Type", MIME_JPEG, &response, &connection);
 			
 			return ret;
 		}
@@ -303,7 +388,7 @@ int main(
 	try 
 	{
 		const char* connect_info = "host=localhost port=5432 dbname=bank_db user=postgres password=111";
-		PGconn* db_connection = PQconnectdb(connect_info);
+		db_connection = PQconnectdb(connect_info);
 
 		//checking connetction to data base
 		if (PQstatus(db_connection) != CONNECTION_OK)
@@ -315,6 +400,7 @@ int main(
 		}
 		
 		db_request_buffer = (char*)malloc(REQUEST_BUFFER_LENGTH);
+		db_request_beffer_size = REQUEST_BUFFER_LENGTH;
 		db_request_buffer[0] = NULL;
 		header_values_buffer = (char*)malloc(HEADER_VALUES_BUFFER_LENGTH);
 		header_values_buffer[0] = NULL;
