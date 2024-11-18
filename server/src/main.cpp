@@ -18,25 +18,21 @@
 #define FIND_EMPLOYEE_PRIVATE_MEMBER_ID_POS
 
 #define PORT 80
-#define FILE_NAME "/res/cat.jpg"
 
-#define HOME_PAGE_NAME "/res/home_page.html"
-#define EMPLOYEE_PAGE_NAME "/res/employee_page.html"
-#define CLIENT_PAGE_NAME "/res/client_page.html"
+#define HOME_PAGE_NAME "res/home_page.html"
+#define EMPLOYEE_PAGE_NAME "res/employee_page.html"
+#define CLIENT_PAGE_NAME "res/client_page.html"
 
 #define MIME_TYPE "image/jpg"
 #define MIME_HTML "text/html; charset=UTF-8"
 #define MIME_TEXT "text/plain; charset=UTF-8"
 #define MIME_JPEG "image/jpeg"
 
-#define USER_NAME ""
-#define USER_PASSWORD ""
-
 #define REQUEST_BUFFER_LENGTH 150
 #define HEADER_VALUES_BUFFER_LENGTH 150
 
-#define HOST_NAME "sigma-bank.ru"
-#define HOST_NAME_LENGTH 14 //null-terminated 
+#define HOST_NAME "localhost"
+#define HOST_NAME_LENGTH 10 //null-terminated 
 #define HOST_NAME_OFFSET (sizeof("http://") - 1)
 
 PGconn* db_connection = NULL;
@@ -59,9 +55,9 @@ void* client_page_data[] =
 
 const char* const page_names[] = 
 {
-	"sigma-bank.ru",
-	"sigma-bank.ru/employee",
-	"sigma-bank.ru/client"
+	"/",
+	"/employee",
+	"/client"
 };
 
 const char* const resource_names[] = 
@@ -76,6 +72,27 @@ MHD_Result Print_Out_Key(
 	printf("%s: %s\n", key, value);
 
 	return MHD_YES;
+};
+
+void Iternal_Error_Handling(
+	const char* error_str, MHD_Response** response,
+	MHD_Connection** connection)
+{
+	if ( error_str == NULL ) 
+	{
+		error_str = "<html><body>Error occured!</body></html>"
+		*response = MHD_create_response_from_buffer( strlen( error_str ), (void*)error_str, MHD_RESPMEM_PERSISTENT );
+	}
+	else
+	{
+		char error_str_html[ sizeof( "<html><body>" ) + sizeof( "</body></html>" ) + strlen( error_str ) - 2 ] = { NULL };
+		strcat( error_str_html, "<html><body>" );
+		strcat( error_str_html, error_str );
+		strcat( error_str_html, "</body></html>" );
+		*response = MHD_create_response_from_buffer( strlen( error_str_html ), (void*)error_str_html, MHD_RESPMEM_PERSISTENT );
+	}
+	MHD_queue_response( *connection, MHD_HTTP_OK, *response );
+	MHD_destroy_response( *response );
 };
 
 //string_buffer must be null-terminated
@@ -240,6 +257,7 @@ MHD_Result Sending_Response(
 	if (((*response_file = fopen(resource_file_name, "r")) == NULL) ||
 		 (fstat(_fileno(*response_file), &file_stat) == C_STD_ERROR))
 	{
+		if (*response_file != NULL) {fclose(*response_file);}
 		Iternal_Error_Handling(NULL);
 
 		return MHD_NO;
@@ -319,7 +337,7 @@ MHD_Result Answer_To_Connection(
 	int member_id = 0;
 	int access_fail;
 	int access_res;
-	PGresult* request_result;
+	PGresult* request_result = NULL;
 	
 	//printing connection info
 	printf("New %s request for %s using version %s\n", method, url, version);
@@ -331,7 +349,7 @@ MHD_Result Answer_To_Connection(
 	
 	//url exploration (http, no secure)(const char* url mb contains only urn, hostname contains in same-name header field!!!)
 	//home page has been requsted
-	if 		(strcmp(url + HOST_NAME_OFFSET, page_names[0]) == 0)
+	if 		(strncmp(url, page_names[0], 1) == 0)
 	{
 		if 		(strncmp(upload_data, "Clinet Auth Req", 15) == 0)
 		{
@@ -399,14 +417,14 @@ MHD_Result Answer_To_Connection(
 		return ret;
 	}
 	//employee page has been requested
-	else if (strcmp(url + HOST_NAME_OFFSET, page_names[1]) == 0)
+	else if (strncmp(url, page_names[1], 9) == 0)
 	{
 		ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
 
 		return ret;
 	}
 	//clinet page has been requested
-	else if (strcmp(url + HOST_NAME_OFFSET, page_names[2]) == 0)
+	else if (strncmp(url, page_names[2], 7) == 0)
 	{
 		ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
 
