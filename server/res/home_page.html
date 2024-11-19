@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Sigma Bank</title>
+	</head>
+	<body>
+		<h1>Sigma Bank</h1>
+		<h1>Client log in</h1>
+		
+		<p>Please enter your login and password below:</p>
+		
+		<form id="cl_log_in">
+			<label for="name">Login:</label><br>
+			<input type="text" id="cl_login_field" name="login_value"><br>
+			
+			<label for="name">Password:</label><br>
+			<input type="password" id="cl_password_field" name="password_value"><br>
+			
+			<input type="submit" id="cl_account_data_send" value="Submit">
+		</form>
+		
+		<script>
+			document.getElementById('cl_log_in').addEventListener('submit', 
+			function(event) 
+			{
+				event.preventDefault();
+				
+				const cl_login = document.getElementById('cl_login_field').value;
+				const cl_password = document.getElementById('cl_password_field').value;
+				
+				const auth_string = btoa(`${cl_login}:${cl_password}`); 
+				
+				const request_data = 'Clinet Auth Req';
+				const encoder = new TextEncoder('ascii');
+				const encoded_data = encoder.encode(request_data);
+				
+				fetch('http://localhost', 
+				{
+					method: 'POST', 
+					headers:
+					{
+						'Authorization': `Basic ${auth_string}`
+					},
+					body: encoded_data
+				})
+				.then(response => 
+				{
+					if (!response.ok)
+					{
+						 throw new Error('Error' + response.status);
+					}
+					return response.text();
+				})
+				.then(html => 
+				{
+					document.body.innerHTML = html;
+				})
+				.catch(error =>
+				{
+					console.error('Error:', error);
+				});
+			});
+		</script>
+		
+	</body>
+</html>

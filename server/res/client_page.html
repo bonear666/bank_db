@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<style>
+	p
+	{
+		float: left;
+		margin: 0 100px;
+	}
+</style>
+	<head>
+		<title>Client Page</title>
+	</head>
+	<body>
+		<h1>Your private information</h1>
+		<p id="cl_private_table_fields">fields</p>
+		<p id="cl_private_table_values">values</p>
+	</body>
+	
+	<script>
+		document.addEventListener('load', 
+		function()
+		{
+			const cl_prv_fields_req = 'Cl_Prv_Flds';
+			const fields_encoder = new TextEncoder('ascii');
+			const fields_encoded_data = encoder.encode(cl_prv_fields_req);
+			
+			const cl_prv_values_req = 'Cl_Prv_Vls';
+			const values_encoder = new TextEncoder('ascii');
+			const values_encoded_data = encoder.encode(cl_prv_values_req);
+			
+			//send request for client private table fields
+			fetch('http://localhost/res/cl_private_table_fields', 
+			{
+				method: 'POST',
+				headers:
+				{
+					'Accept': 'text/'
+				},
+				body: fields_encoded_data
+			})
+			.then(response =>
+			{
+				if (!response.ok)
+				{
+					 throw new Error('Error' + response.status);
+				}
+				return response.text();
+			})
+			.then(data => 
+			{
+				document.getElementById('cl_private_table_fields').innerText = data;
+			})
+			.catch(error =>
+			{
+				console.error('Error:', error);
+			});	
+			
+			//send request for client private table values
+			fetch('http://localhost/res/cl_private_table_values', 
+			{
+				method: 'POST',
+				headers:
+				{
+					'Accept': 'text/'
+				},
+				body: values_encoded_data
+			})
+			.then(response =>
+			{
+				if (!response.ok)
+				{
+					 throw new Error('Error' + response.status);
+				}
+				return response.text();
+			})
+			.then(data => 
+			{
+				document.getElementById('cl_private_table_values').innerText = data;
+			})
+			.catch(error =>
+			{
+				console.error('Error:', error);
+			});	
+		});
+	</script>
+</html>

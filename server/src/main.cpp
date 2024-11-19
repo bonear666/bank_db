@@ -343,8 +343,8 @@ MHD_Result Answer_To_Connection(
 	printf("New %s request for %s using version %s\n", method, url, version);
 	MHD_get_connection_values(connection, MHD_HEADER_KIND, &Print_Out_Key, NULL);
 	
-	//handling GET-request
-	if (strcmp("GET", method) != 0) return MHD_NO;
+	//handling GET/POST-request
+	//if (strcmp("GET", method) != 0) return MHD_NO;
 	if (*con_cls == NULL) {*con_cls = connection; return MHD_YES;}
 	
 	//url exploration (http, no secure)(const char* url mb contains only urn, hostname contains in same-name header field!!!)
@@ -447,7 +447,7 @@ MHD_Result Answer_To_Connection(
 		}
 		else if (strncmp(header_values, "text/", 5) == 0)
 		{
-			if 		(strncmp(upload_data, "Cln_Prv_Flds", 12) == 0)
+			if 		(strncmp(upload_data, "Cl_Prv_Flds", 1) == 0)
 			{
 				ret = Sending_Response_From_Buf(
 				client_page_data[0], CLIENT_PRIVATE_TABLE_FIELDS_BUFFER_SIZE - cl_private_fields_buf_available_size
@@ -455,7 +455,7 @@ MHD_Result Answer_To_Connection(
 			
 				return ret;
 			}
-			else if (strncmp(upload_data, "Cln_Prv_Vls", 11) == 0)
+			else if (strncmp(upload_data, "Cl_Prv_Vls", 10) == 0)
 			{
 				ret = Sending_Response_From_Buf(
 				client_page_data[1], CLIENT_PRIVATE_TABLE_VALUES_BUFFER_SIZE - cl_private_values_buf_available_size
