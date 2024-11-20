@@ -8,14 +8,14 @@
 
 #define C_STD_ERROR -1
 
-#define FIND_CLIENT_PRIVATE "db_queries/find_client_private.sql"
-#define FIND_EMPLOYEE_PRIVATE "db_queries/find_employee_private.sql"
+#define GET_CLIENT_PRIVATE "sql_queries/get_client_type_private_id.sql"
+#define GET_EMPLOYEE_PRIVATE "sql_queries/get_employee_type_private_id.sql"
 
-#define FIND_CLIENT_PRIVATE_FILE_SIZE 851
-#define FIND_EMPLOYEE_PRIVATE_FILE_SIZE
+#define GET_CLIENT_PRIVATE_FILE_SIZE 183
+#define GET_EMPLOYEE_PRIVATE_FILE_SIZE
 
-#define FIND_CLIENT_PRIVATE_MEMBER_ID_POS 342
-#define FIND_EMPLOYEE_PRIVATE_MEMBER_ID_POS
+#define GET_CLIENT_PRIVATE_MEMBER_ID_POS 171
+#define GET_EMPLOYEE_PRIVATE_MEMBER_ID_POS
 
 #define PORT 80
 
@@ -174,7 +174,7 @@ int DB_Get_Full_Private_Table(
 	{
 		case 'e':
 		{
-			if ((request_file = fopen(FIND_EMPLOYEE_PRIVATE, "r")) == NULL))
+			if ((request_file = fopen(GET_EMPLOYEE_PRIVATE, "r")) == NULL))
 			{
 				return EXIT_FAILURE;
 			}
@@ -184,7 +184,7 @@ int DB_Get_Full_Private_Table(
 		
 		case 'c':
 		{
-			if ((request_file = fopen(FIND_CLIENT_PRIVATE, "r")) == NULL))
+			if ((request_file = fopen(GET_CLIENT_PRIVATE, "r")) == NULL))
 			{
 				return EXIT_FAILURE;
 			}
@@ -192,20 +192,20 @@ int DB_Get_Full_Private_Table(
 		}
 	}
 	
-	if (db_request_buffer_size < (FIND_CLIENT_PRIVATE_FILE_SIZE + 1))
+	if (db_request_buffer_size < (GET_CLIENT_PRIVATE_FILE_SIZE + 1))
 	{
-		void* new_buffer = realloc((void*)db_request_buffer, FIND_CLIENT_PRIVATE_FILE_SIZE + 1);
+		void* new_buffer = realloc((void*)db_request_buffer, GET_CLIENT_PRIVATE_FILE_SIZE + 1);
 		if (new_buffer == NULL)
 		{
 			return EXIT_FAILURE;
 		}
 		
 		db_request_buffer = (char*)new_buffer;
-		db_request_buffer_size = FIND_CLIENT_PRIVATE_FILE_SIZE + 1;
+		db_request_buffer_size = GET_CLIENT_PRIVATE_FILE_SIZE + 1;
 		new_buffer = NULL;
 	}
 	
-	if ((db_request_buffer = fgets(db_request_buffer, FIND_CLIENT_PRIVATE_FILE_SIZE, request_file)) == NULL)
+	if ((db_request_buffer = fgets(db_request_buffer, GET_CLIENT_PRIVATE_FILE_SIZE, request_file)) == NULL)
 	{
 		return EXIT_FAILURE;
 	}
@@ -219,10 +219,36 @@ int DB_Get_Full_Private_Table(
 		
 		case 'c':
 		memcpy(
-		(void*)(db_request_buffer + FIND_CLIENT_PRIVATE_MEMBER_ID_POS + (10 - member_id_length)), 
+		(void*)(db_request_buffer + GET_CLIENT_PRIVATE_MEMBER_ID_POS + (10 - member_id_length)), 
 		(void*)member_id_str, member_id_length);
 		
+		*request_result = PQexec( db_connection, db_request_buffer );
+		if ( *request_result == NULL )
+		{
+			return EXIT_FAILURE;
+		}
+		
+		const char* cl_type = PQgetvalue( *request_result, 0, 0 );
+		const char* cl_private_id = PQgetvalue( *request_result, 0, 1 );
+		if 		( strcmp( cl_type, "natural person" ) == 0 )
+		{
+			db_request_buffer[ 0 ] = NULL;
+			strcat( db_request_buffer, "SELECT * \
+										FROM Get_Nat_Cl_Private_Data(");
+			strcat( db_request_buffer, cl_private_id );
+			strcat( db_request_buffer, ");" )
+		}
+		else if ( strcmp( cl_type, "juridical person" ) == 0 )
+		{
+			db_request_buffer[ 0 ] = NULL;
+			strcat( db_request_buffer, "SELECT * \
+										FROM Get_Jur_Cl_Private_Data(");
+			strcat( db_request_buffer, cl_private_id );
+			strcat( db_request_buffer, ");" )		
+		}
+		PQclear( *request_result );
 		*request_result = PQexec(db_connection, db_request_buffer);
+		
 		break;
 	}
 	
@@ -351,6 +377,13 @@ MHD_Result Answer_To_Connection(
 	//home page has been requsted
 	if 		(strncmp(url, page_names[0], 1) == 0)
 	{
+		if (upload_data == NULL)
+		{
+			ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
+		
+			return ret;
+		}
+		
 		if 		(strncmp(upload_data, "Clinet Auth Req", 15) == 0)
 		{
 			username = MHD_basic_auth_get_username_password(connection, &password);
