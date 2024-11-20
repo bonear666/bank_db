@@ -13,14 +13,14 @@ create table debit_type(
 id serial primary key,
 product_name text,
 current_currency_name currency_name,
-foreign key(available_currency_id) references available_currency_type(id) 
-on delete set null on update cascade,
+available_currency currency_name[],
+service_id integer,
 foreign key(service_id) references service_type(id) 
 on delete set null on update cascade);
 
 --виды кредитов
-create table credit_type(
-id serial primary key,);
+--create table credit_type(
+--id serial primary key,);
 
 --виды  вкладов
 create table deposit_type(
