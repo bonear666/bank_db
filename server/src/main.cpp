@@ -1,10 +1,25 @@
 #define _CRT_SECURE_NO_WARNINGS
+#define _FILE_OFFSET_BITS 64
 
 #include <iostream>
-#include <stdio.h>
+//#include <stdio.h>
 #include <libpq-fe.h>
-//#include <Windows.h>
+
+#include <sys/types.h>
+#ifndef _WIN32
+#include <sys/select.h>
+#include <sys/socket.h>
+#else
+#include <winsock2.h>
+#endif
 #include <microhttpd.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <string.h>
+#include <stdio.h>
+
+//#include <microhttpd.h>
 
 #define C_STD_ERROR -1
 
@@ -80,16 +95,17 @@ void Iternal_Error_Handling(
 {
 	if ( error_str == NULL ) 
 	{
-		error_str = "<html><body>Error occured!</body></html>"
-		*response = MHD_create_response_from_buffer( strlen( error_str ), (void*)error_str, MHD_RESPMEM_PERSISTENT );
+		error_str = "<html><body><h1>Error occured!</h1></body></html>";
+		*response = MHD_create_response_from_buffer( strlen( error_str ), ( void* )error_str, MHD_RESPMEM_PERSISTENT );
 	}
 	else
 	{
-		char error_str_html[ sizeof( "<html><body>" ) + sizeof( "</body></html>" ) + strlen( error_str ) - 2 ] = { NULL };
+		char* error_str_html = ( char* )malloc( sizeof( "<html><body>" ) + sizeof( "</body></html>" ) + strlen( error_str ) - 1 );
+		error_str_html[0] = NULL;
 		strcat( error_str_html, "<html><body>" );
 		strcat( error_str_html, error_str );
 		strcat( error_str_html, "</body></html>" );
-		*response = MHD_create_response_from_buffer( strlen( error_str_html ), (void*)error_str_html, MHD_RESPMEM_PERSISTENT );
+		*response = MHD_create_response_from_buffer( strlen( error_str_html ), ( void* )error_str_html, MHD_RESPMEM_MUST_FREE);
 	}
 	MHD_queue_response( *connection, MHD_HTTP_OK, *response );
 	MHD_destroy_response( *response );
@@ -109,46 +125,46 @@ int Request_Result_To_String(
 	switch(request_type)
 	{
 		case 0: //private table request fields handling
-		{	
-		for (int j = 0; j < columns; j++) 
 		{
-			value_size = strlen(PQfname(*request_result, j)) + 2 + 1;
-			
-			if (value_size > *buffer_availabel_size) 
+			for (int j = 0; j < columns; j++)
 			{
-				return EXIT_FAILURE;
+				value_size = strlen(PQfname(*request_result, j)) + 2 + 1;
+
+				if (value_size > *buffer_availabel_size)
+				{
+					return EXIT_FAILURE;
+				}
+				strcat(string_buffer, PQfname(*request_result, j));
+				strcat(string_buffer, "\x0D\x0A"); //CR LF
+
+				*buffer_availabel_size -= value_size + 2;
 			}
-			strcat(string_buffer, PQfname(*request_result, j));
-			strcat(string_buffer, "\x0D\x0A"); //CR LF
-			
-			*buffer_availabel_size -= value_size + 2;
-		}
-		
-		*buffer_availabel_size++;
-		break;
+
+			*buffer_availabel_size++;
+			break;
 		}
 		
 		case 1: //private table request values handling
 		{
-		for (int i = 0; i < rows; i++)
-		{
-			for (int j = 0; j < columns; j++)
+			for (int i = 0; i < rows; i++)
 			{
-				value_size = PQgetlength(*request_result, i, j) + 2 + 1;
-				
-				if (value_size > *buffer_availabel_size) 
+				for (int j = 0; j < columns; j++)
 				{
-					return EXIT_FAILURE;
+					value_size = PQgetlength(*request_result, i, j) + 2 + 1;
+
+					if (value_size > *buffer_availabel_size)
+					{
+						return EXIT_FAILURE;
+					}
+					strcat(string_buffer, PQgetvalue(*request_result, i, j));
+					strcat(string_buffer, "\x0D\x0A"); //CR LF
+
+					*buffer_availabel_size -= value_size + 2;
 				}
-				strcat(string_buffer, PQgetvalue(*request_result, i, j));
-				strcat(string_buffer, "\x0D\x0A"); //CR LF
-			
-				*buffer_availabel_size -= value_size + 2;
 			}
-		}
-		
-		*buffer_availabel_size++;
-		break;
+
+			*buffer_availabel_size++;
+			break;
 		}
 	}
 	
@@ -162,7 +178,7 @@ int DB_Get_Full_Private_Table(
 	*request_result = NULL;
 	FILE* request_file = NULL;
 	size_t write_counter = 0;
-	char member_id_str[11] = NULL; //null-terminated
+	char member_id_str[11] = { NULL }; //null-terminated
 	int member_id_length = 0; //not counting the terminating null character
 	
 	if ((member_id_length = sprintf(member_id_str, "%d", member_id)) == C_STD_ERROR)
@@ -174,7 +190,7 @@ int DB_Get_Full_Private_Table(
 	{
 		case 'e':
 		{
-			if ((request_file = fopen(GET_EMPLOYEE_PRIVATE, "r")) == NULL))
+			if ((request_file = fopen(GET_EMPLOYEE_PRIVATE, "r")) == NULL)
 			{
 				return EXIT_FAILURE;
 			}
@@ -184,7 +200,7 @@ int DB_Get_Full_Private_Table(
 		
 		case 'c':
 		{
-			if ((request_file = fopen(GET_CLIENT_PRIVATE, "r")) == NULL))
+			if ((request_file = fopen(GET_CLIENT_PRIVATE, "r")) == NULL)
 			{
 				return EXIT_FAILURE;
 			}
@@ -215,41 +231,43 @@ int DB_Get_Full_Private_Table(
 	switch(member_type)
 	{
 		case 'e':
-		break;
+		{
+			break;
+		}
 		
 		case 'c':
-		memcpy(
-		(void*)(db_request_buffer + GET_CLIENT_PRIVATE_MEMBER_ID_POS + (10 - member_id_length)), 
-		(void*)member_id_str, member_id_length);
-		
-		*request_result = PQexec( db_connection, db_request_buffer );
-		if ( *request_result == NULL )
 		{
-			return EXIT_FAILURE;
+			memcpy(
+				(void*)(db_request_buffer + GET_CLIENT_PRIVATE_MEMBER_ID_POS + (10 - member_id_length)),
+				(void*)member_id_str, member_id_length);
+
+			*request_result = PQexec(db_connection, db_request_buffer);
+			if (*request_result == NULL)
+			{
+				return EXIT_FAILURE;
+			}
+
+			const char* cl_type = PQgetvalue(*request_result, 0, 0);
+			const char* cl_private_id = PQgetvalue(*request_result, 0, 1);
+			if (strcmp(cl_type, "natural person") == 0)
+			{
+				db_request_buffer[0] = NULL;
+				strcat(db_request_buffer, "SELECT * FROM Get_Nat_Cl_Private_Data(");
+				strcat(db_request_buffer, cl_private_id);
+				strcat(db_request_buffer, ");");
+			}
+			else if (strcmp(cl_type, "juridical person") == 0)
+			{
+				db_request_buffer[0] = NULL;
+				strcat(db_request_buffer, "SELECT * FROM Get_Jur_Cl_Private_Data(");
+				strcat(db_request_buffer, cl_private_id);
+				strcat(db_request_buffer, ");");
+			}
+			PQclear(*request_result);
+			*request_result = PQexec(db_connection, db_request_buffer);
+
+			break;
 		}
-		
-		const char* cl_type = PQgetvalue( *request_result, 0, 0 );
-		const char* cl_private_id = PQgetvalue( *request_result, 0, 1 );
-		if 		( strcmp( cl_type, "natural person" ) == 0 )
-		{
-			db_request_buffer[ 0 ] = NULL;
-			strcat( db_request_buffer, "SELECT * \
-										FROM Get_Nat_Cl_Private_Data(");
-			strcat( db_request_buffer, cl_private_id );
-			strcat( db_request_buffer, ");" )
-		}
-		else if ( strcmp( cl_type, "juridical person" ) == 0 )
-		{
-			db_request_buffer[ 0 ] = NULL;
-			strcat( db_request_buffer, "SELECT * \
-										FROM Get_Jur_Cl_Private_Data(");
-			strcat( db_request_buffer, cl_private_id );
-			strcat( db_request_buffer, ");" )		
-		}
-		PQclear( *request_result );
-		*request_result = PQexec(db_connection, db_request_buffer);
-		
-		break;
 	}
 	
 	if (*request_result == NULL)
@@ -266,33 +284,33 @@ MHD_Result Sending_Response_From_Buf(
 	MHD_ResponseMemoryMode memory_mode, MHD_Response** response,
 	MHD_Connection** connection )
 {
-	response = MHD_create_response_from_buffer( buffer_size, (void*)buffer, memory_mode );
+	*response = MHD_create_response_from_buffer( buffer_size, (void*)buffer, memory_mode );
 	MHD_add_response_header( *response, header_field, mime_type );
-	ret = MHD_queue_response( connection, MHD_HTTP_OK, response );
+	MHD_Result ret = MHD_queue_response( *connection, MHD_HTTP_OK, *response );
 	MHD_destroy_response( *response );
 	
 	return ret;
 };
 
 MHD_Result Sending_Response(
-	FILE** response_file, stat* file_stat,
+	FILE** response_file, struct stat* file_stat,
 	const char* resource_file_name, int member_id,
 	const char* header_field, const char* mime_type,
 	MHD_Response** response, MHD_Connection** connection) 
 {
-	if (((*response_file = fopen(resource_file_name, "r")) == NULL) ||
-		 (fstat(_fileno(*response_file), &file_stat) == C_STD_ERROR))
+	if ( ( ( *response_file = fopen( resource_file_name, "r" ) ) == NULL ) ||
+		 ( fstat( _fileno( *response_file ), file_stat ) == C_STD_ERROR ) )
 	{
 		if (*response_file != NULL) {fclose(*response_file);}
-		Iternal_Error_Handling(NULL);
+		Iternal_Error_Handling(NULL, response, connection);
 
-		return MHD_NO;
+		return MHD_YES;
 	}
 
 	//sending response
-	*response = MHD_create_response_from_fd_at_offset64(file_stat.st_size, _fileno(*response_file), 0);
-	MHD_add_response_header(*response, header_field, mime_type);
-	ret = MHD_queue_response(*connection, MHD_HTTP_OK, *response);
+	*response = MHD_create_response_from_fd_at_offset64(file_stat->st_size, _fileno(*response_file), 0);
+	MHD_Result header_res = MHD_add_response_header(*response, header_field, mime_type);
+	MHD_Result ret = MHD_queue_response(*connection, MHD_HTTP_OK, *response);
 	MHD_destroy_response(*response);
 
 	return ret;
@@ -309,30 +327,30 @@ int DB_Auth_Request(
 	switch (member_type)
 	{
 		case 'e':
-		strcat(db_request_buffer, "SELECT employee_login, employee_password \
-								   FROM employee_account \
-								   WHERE employee_login = ");
-		strcat(db_request_buffer, username);
-		strcat(db_request_buffer, " ");
-		strcat(db_request_buffer, "AND employee_password = ");
-		strcat(db_request_buffer, password);
-		strcat(db_request_buffer, ";");
-		
-		*request_result = PQexec(db_connection, db_request_buffer);
-		break;
+		{
+			strcat(db_request_buffer, "SELECT employee_id FROM employee_account WHERE employee_login = '");
+			strcat(db_request_buffer, username);
+			strcat(db_request_buffer, "' ");
+			strcat(db_request_buffer, "AND employee_password = '");
+			strcat(db_request_buffer, password);
+			strcat(db_request_buffer, "';");
+
+			*request_result = PQexec(db_connection, db_request_buffer);
+			break; 
+		}
 		
 		case 'c':
-		strcat(db_request_buffer, "SELECT client_login, client_password \
-								   FROM client_account \
-								   WHERE client_login = ");
-		strcat(db_request_buffer, username);
-		strcat(db_request_buffer, " ");
-		strcat(db_request_buffer, "AND client_password = ");
-		strcat(db_request_buffer, password);
-		strcat(db_request_buffer, ";");
-		
-		*request_result = PQexec(db_connection, db_request_buffer);
-		break;
+		{
+			strcat(db_request_buffer, "SELECT client_id FROM client_account WHERE client_login = '");
+			strcat(db_request_buffer, username);
+			strcat(db_request_buffer, "' ");
+			strcat(db_request_buffer, "AND client_password = '");
+			strcat(db_request_buffer, password);
+			strcat(db_request_buffer, "';");
+
+			*request_result = PQexec(db_connection, db_request_buffer);
+			break;
+		}
 	}	
 	
 	if (*request_result != NULL)
@@ -354,14 +372,13 @@ MHD_Result Answer_To_Connection(
 	const char* version, const char* upload_data,
 	size_t* upload_data_size, void** con_cls) 
 {
-	struct MHD_Response* response;
+	struct MHD_Response* response = NULL;
 	MHD_Result ret = MHD_NO;
-	FILE* response_file;
+	FILE* response_file = NULL;
 	struct stat file_stat;
 	char* username = NULL;
 	char* password = NULL;
 	int member_id = 0;
-	int access_fail;
 	int access_res;
 	PGresult* request_result = NULL;
 	
@@ -375,12 +392,12 @@ MHD_Result Answer_To_Connection(
 	
 	//url exploration (http, no secure)(const char* url mb contains only urn, hostname contains in same-name header field!!!)
 	//home page has been requsted
-	if 		(strncmp(url, page_names[0], 1) == 0)
+	if 		(strncmp(url, page_names[0], 2) == 0)
 	{
 		if (upload_data == NULL)
 		{
 			ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
-		
+			
 			return ret;
 		}
 		
@@ -394,9 +411,9 @@ MHD_Result Answer_To_Connection(
 			if (access_res == EXIT_SUCCESS)
 			{	
 				if( ( ( client_page_data[0] = malloc( (size_t)cl_private_fields_buf_available_size ) ) == NULL ) ||
-					  ( client_page_data[1] = malloc( (size_t)cl_private_values_buf_available_size ) ) == NULL ) )
+					( ( client_page_data[1] = malloc( (size_t)cl_private_values_buf_available_size ) ) == NULL ) )
 				{
-					Iternal_Error_Handling(NULL);
+					Iternal_Error_Handling(NULL, &response, &connection);
 					
 					return MHD_NO;
 				}
@@ -405,7 +422,7 @@ MHD_Result Answer_To_Connection(
 				    ( Request_Result_To_String(0, (char*)client_page_data[0], &cl_private_fields_buf_available_size, &request_result ) == EXIT_FAILURE ) ||
 				    ( Request_Result_To_String(1, (char*)client_page_data[1], &cl_private_values_buf_available_size, &request_result ) == EXIT_FAILURE ) )
 				{
-					Iternal_Error_Handling(NULL);
+					Iternal_Error_Handling(NULL, &response, &connection);
 					
 					return MHD_NO;
 				}
@@ -414,7 +431,7 @@ MHD_Result Answer_To_Connection(
 			}
 			else
 			{
-				Iternal_Error_Handling("Wrong client info or Iternal error occured");
+				Iternal_Error_Handling("Wrong client info or Iternal error occured", &response, &connection);
 				
 				ret = MHD_NO;
 			}
@@ -436,7 +453,7 @@ MHD_Result Answer_To_Connection(
 			}
 			else
 			{
-				Iternal_Error_Handling("Wrong employee info or Iternal error occured");
+				Iternal_Error_Handling("Wrong employee info or Iternal error occured", &response, &connection);
 				
 				ret = MHD_NO;
 			}
@@ -470,7 +487,7 @@ MHD_Result Answer_To_Connection(
 		const char* header_values = NULL;
 		size_t header_values_size = NULL;
 		
-		MHD_lookup_connection_value_n(connection, MHD_HEADER_KIND, "Accept", &header_values, &header_values_size);
+		MHD_lookup_connection_value_n(connection, MHD_HEADER_KIND, "Accept", sizeof("Accept") - 1, &header_values, &header_values_size);
 		
 		if 		(strncmp(header_values, "image/", 6) == 0)
 		{
@@ -483,7 +500,7 @@ MHD_Result Answer_To_Connection(
 			if 		(strncmp(upload_data, "Cl_Prv_Flds", 1) == 0)
 			{
 				ret = Sending_Response_From_Buf(
-				client_page_data[0], CLIENT_PRIVATE_TABLE_FIELDS_BUFFER_SIZE - cl_private_fields_buf_available_size
+				client_page_data[0], CLIENT_PRIVATE_TABLE_FIELDS_BUFFER_SIZE - cl_private_fields_buf_available_size,
 				"Content-Type", MIME_TEXT, MHD_RESPMEM_MUST_FREE, &response, &connection );
 			
 				return ret;
@@ -491,66 +508,15 @@ MHD_Result Answer_To_Connection(
 			else if (strncmp(upload_data, "Cl_Prv_Vls", 10) == 0)
 			{
 				ret = Sending_Response_From_Buf(
-				client_page_data[1], CLIENT_PRIVATE_TABLE_VALUES_BUFFER_SIZE - cl_private_values_buf_available_size
+				client_page_data[1], CLIENT_PRIVATE_TABLE_VALUES_BUFFER_SIZE - cl_private_values_buf_available_size,
 				"Content-Type", MIME_TEXT, MHD_RESPMEM_MUST_FREE, &response, &connection );
 			
 				return ret;
 			}
 		}
 	}
-	
+
 	return MHD_NO;
-	//----------
-	//handling authentication
-	password = NULL;
-	username = MHD_basic_auth_get_username_password(connection, &password);
-	access_fail = ((username == NULL) 				  ||
-				   (strcmp(username, USER_NAME) != 0) ||
-				   (strcmp(password, USER_PASSWORD) != 0));
-	
-	if (username != NULL) MHD_free(username);
-	if (password != NULL) MHD_free(password);
-	
-	if (access_fail != NULL) 
-	{
-		const char* error_str = "<html><body>Access failed</body></html>";
-		response = MHD_create_response_from_buffer(strlen(error_str), (void*)error_str, MHD_RESPMEM_PERSISTENT);
-		ret = MHD_queue_basic_auth_fail_response(connection, "Main Realm", response);
-		
-		return MHD_NO;
-	}
-	else 
-	{
-		const char* page = "<html><body>Access succeed</body></html>";
-		response = MHD_create_response_from_buffer(strlen(page), (void*)page, MHD_RESPMEM_PERSISTENT);
-		ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
-	}
-	
-	//response file errors handling
-	if (((response_file = fopen(FILE_NAME, "r"))	== NULL) ||
-		 (fstat(_fileno(response_file), &file_stat) == C_STD_ERROR))
-	{
-		const char* error_str = "<html><body>An internal server error has occurred!</body></html>";
-
-		if (response_file != NULL) fclose(response_file);
-
-		response = MHD_create_response_from_buffer(strlen(error_str), (void*)error_str, MHD_RESPMEM_PERSISTENT);
-
-		if (response == NULL) return MHD_NO;
-
-		ret = MHD_queue_response(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, response);
-		MHD_destroy_response(response);
-
-		return MHD_NO;
-	}
-	
-	response = MHD_create_response_from_fd_at_offset64(file_stat.st_size, _fileno(response_file), 0);
-	MHD_add_response_header(response, "Content-Type", MIME_TYPE);
-	ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
-	MHD_destroy_response(response);
-
-	//fclose(response_file); closed when response is destroyed
-	return ret;
 };
 
 int main(
