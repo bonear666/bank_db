@@ -11,7 +11,7 @@
 #define GET_CLIENT_PRIVATE "sql_queries/get_client_type_private_id.sql"
 #define GET_EMPLOYEE_PRIVATE "sql_queries/get_employee_type_private_id.sql"
 
-#define GET_CLIENT_PRIVATE_FILE_SIZE 183
+#define GET_CLIENT_PRIVATE_FILE_SIZE 182
 #define GET_EMPLOYEE_PRIVATE_FILE_SIZE
 
 #define GET_CLIENT_PRIVATE_MEMBER_ID_POS 171
