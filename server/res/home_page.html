@@ -30,18 +30,13 @@
 				
 				const auth_string = btoa(`${cl_login}:${cl_password}`); 
 				
-				const request_data = 'Clinet Auth Req';
-				const encoder = new TextEncoder('ascii');
-				const encoded_data = encoder.encode(request_data);
-				
-				fetch('http://localhost', 
+				fetch('http://localhost/client', 
 				{
-					method: 'POST', 
+					method: 'GET', 
 					headers:
 					{
 						'Authorization': `Basic ${auth_string}`
-					},
-					body: encoded_data
+					}
 				})
 				.then(response => 
 				{
@@ -53,7 +48,17 @@
 				})
 				.then(html => 
 				{
-					document.body.innerHTML = html;
+					const temp_div = document.createElement('div');
+					temp_div.innerHTML = html;
+					document.body.innerHTML = temp_div.innerHTML;
+					
+					const scripts = temp_div.getElementsByTagName('script');
+					for(let script of scripts)
+					{
+						const new_script = document.createElement('script');
+						new_script.textContent = script.textContent;
+						document.body.appendChild(new_script);
+					}
 				})
 				.catch(error =>
 				{
@@ -61,6 +66,5 @@
 				});
 			});
 		</script>
-		
 	</body>
 </html>

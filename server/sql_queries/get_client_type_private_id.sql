@@ -8,4 +8,4 @@ client_data
 ON 
 client_account.client_id = client_data.id
 WHERE
-client_account.id = 0000000000;
+client_data.id = 0000000000;

@@ -26,10 +26,10 @@
 #define GET_CLIENT_PRIVATE "sql_queries/get_client_type_private_id.sql"
 #define GET_EMPLOYEE_PRIVATE "sql_queries/get_employee_type_private_id.sql"
 
-#define GET_CLIENT_PRIVATE_FILE_SIZE 182
+#define GET_CLIENT_PRIVATE_FILE_SIZE 179
 #define GET_EMPLOYEE_PRIVATE_FILE_SIZE
 
-#define GET_CLIENT_PRIVATE_MEMBER_ID_POS 171
+#define GET_CLIENT_PRIVATE_MEMBER_ID_POS 168
 #define GET_EMPLOYEE_PRIVATE_MEMBER_ID_POS
 
 #define PORT 80
@@ -128,16 +128,16 @@ int Request_Result_To_String(
 		{
 			for (int j = 0; j < columns; j++)
 			{
-				value_size = strlen(PQfname(*request_result, j)) + 2 + 1;
+				value_size = strlen(PQfname(*request_result, j)) + 2;
 
-				if (value_size > *buffer_availabel_size)
+				if (value_size + 1 > *buffer_availabel_size)
 				{
 					return EXIT_FAILURE;
 				}
 				strcat(string_buffer, PQfname(*request_result, j));
 				strcat(string_buffer, "\x0D\x0A"); //CR LF
 
-				*buffer_availabel_size -= value_size + 2;
+				*buffer_availabel_size -= value_size;
 			}
 
 			*buffer_availabel_size++;
@@ -150,16 +150,16 @@ int Request_Result_To_String(
 			{
 				for (int j = 0; j < columns; j++)
 				{
-					value_size = PQgetlength(*request_result, i, j) + 2 + 1;
+					value_size = PQgetlength(*request_result, i, j) + 2;
 
-					if (value_size > *buffer_availabel_size)
+					if (value_size + 1 > *buffer_availabel_size)
 					{
 						return EXIT_FAILURE;
 					}
 					strcat(string_buffer, PQgetvalue(*request_result, i, j));
 					strcat(string_buffer, "\x0D\x0A"); //CR LF
 
-					*buffer_availabel_size -= value_size + 2;
+					*buffer_availabel_size -= value_size;
 				}
 			}
 
@@ -221,11 +221,12 @@ int DB_Get_Full_Private_Table(
 		new_buffer = NULL;
 	}
 	
-	if ((db_request_buffer = fgets(db_request_buffer, GET_CLIENT_PRIVATE_FILE_SIZE, request_file)) == NULL)
+	if ((fread(db_request_buffer, sizeof(char), GET_CLIENT_PRIVATE_FILE_SIZE, request_file)) < GET_CLIENT_PRIVATE_FILE_SIZE)
 	{
 		return EXIT_FAILURE;
 	}
-	
+	db_request_buffer[GET_CLIENT_PRIVATE_FILE_SIZE] = NULL;
+
 	fclose(request_file);
 	
 	switch(member_type)
@@ -242,6 +243,7 @@ int DB_Get_Full_Private_Table(
 				(void*)member_id_str, member_id_length);
 
 			*request_result = PQexec(db_connection, db_request_buffer);
+			db_request_buffer[0] = NULL;
 			if (*request_result == NULL)
 			{
 				return EXIT_FAILURE;
@@ -251,14 +253,14 @@ int DB_Get_Full_Private_Table(
 			const char* cl_private_id = PQgetvalue(*request_result, 0, 1);
 			if (strcmp(cl_type, "natural person") == 0)
 			{
-				db_request_buffer[0] = NULL;
+				//db_request_buffer[0] = NULL;
 				strcat(db_request_buffer, "SELECT * FROM Get_Nat_Cl_Private_Data(");
 				strcat(db_request_buffer, cl_private_id);
 				strcat(db_request_buffer, ");");
 			}
 			else if (strcmp(cl_type, "juridical person") == 0)
 			{
-				db_request_buffer[0] = NULL;
+				//db_request_buffer[0] = NULL;
 				strcat(db_request_buffer, "SELECT * FROM Get_Jur_Cl_Private_Data(");
 				strcat(db_request_buffer, cl_private_id);
 				strcat(db_request_buffer, ");");
@@ -336,6 +338,7 @@ int DB_Auth_Request(
 			strcat(db_request_buffer, "';");
 
 			*request_result = PQexec(db_connection, db_request_buffer);
+			db_request_buffer[0] = NULL;
 			break; 
 		}
 		
@@ -349,6 +352,7 @@ int DB_Auth_Request(
 			strcat(db_request_buffer, "';");
 
 			*request_result = PQexec(db_connection, db_request_buffer);
+			db_request_buffer[0] = NULL;
 			break;
 		}
 	}	
@@ -394,89 +398,73 @@ MHD_Result Answer_To_Connection(
 	//home page has been requsted
 	if 		(strncmp(url, page_names[0], 2) == 0)
 	{
-		if (upload_data == NULL)
-		{
-			ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
-			
-			return ret;
-		}
-		
-		if 		(strncmp(upload_data, "Clinet Auth Req", 15) == 0)
-		{
-			username = MHD_basic_auth_get_username_password(connection, &password);
-			
-			access_res = DB_Auth_Request('c', username, password, &request_result, &member_id);
-			if (request_result != NULL) {PQclear(request_result);}
-			
-			if (access_res == EXIT_SUCCESS)
-			{	
-				if( ( ( client_page_data[0] = malloc( (size_t)cl_private_fields_buf_available_size ) ) == NULL ) ||
-					( ( client_page_data[1] = malloc( (size_t)cl_private_values_buf_available_size ) ) == NULL ) )
-				{
-					Iternal_Error_Handling(NULL, &response, &connection);
-					
-					return MHD_NO;
-				}
-				
-				if( ( DB_Get_Full_Private_Table( member_id, 'c', &request_result ) == EXIT_FAILURE ) ||
-				    ( Request_Result_To_String(0, (char*)client_page_data[0], &cl_private_fields_buf_available_size, &request_result ) == EXIT_FAILURE ) ||
-				    ( Request_Result_To_String(1, (char*)client_page_data[1], &cl_private_values_buf_available_size, &request_result ) == EXIT_FAILURE ) )
-				{
-					Iternal_Error_Handling(NULL, &response, &connection);
-					
-					return MHD_NO;
-				}
-				
-				ret = Sending_Response(&response_file, &file_stat, CLIENT_PAGE_NAME, member_id, "Content-Type", MIME_HTML, &response, &connection);
-			}
-			else
-			{
-				Iternal_Error_Handling("Wrong client info or Iternal error occured", &response, &connection);
-				
-				ret = MHD_NO;
-			}
-			
-			if (request_result != NULL) {PQclear(request_result);}
-			
-			return ret;
-		}
-		else if (strncmp(upload_data, "Employee Auth Req", 17) == 0)
-		{
-			username = MHD_basic_auth_get_username_password(connection, &password);
-			
-			access_res = DB_Auth_Request('e', username, password, &request_result, &member_id);
-			if (request_result != NULL) {PQclear(request_result);}
-			
-			if (access_res == EXIT_SUCCESS)
-			{
-				ret = Sending_Response(&response_file, &file_stat, EMPLOYEE_PAGE_NAME, member_id, "Content-Type", MIME_HTML, &response, &connection);
-			}
-			else
-			{
-				Iternal_Error_Handling("Wrong employee info or Iternal error occured", &response, &connection);
-				
-				ret = MHD_NO;
-			}
-			
-			if (request_result != NULL) {PQclear(request_result);}
-			
-			return ret;
-		}
 		ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
-		
+
 		return ret;
 	}
 	//employee page has been requested
 	else if (strncmp(url, page_names[1], 9) == 0)
 	{
-		ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
+		username = MHD_basic_auth_get_username_password(connection, &password);
+
+		access_res = DB_Auth_Request('e', username, password, &request_result, &member_id);
+		if (request_result != NULL) { PQclear(request_result); }
+
+		if (access_res == EXIT_SUCCESS)
+		{
+			ret = Sending_Response(&response_file, &file_stat, EMPLOYEE_PAGE_NAME, member_id, "Content-Type", MIME_HTML, &response, &connection);
+		}
+		else
+		{
+			Iternal_Error_Handling("Wrong employee info or Iternal error occured", &response, &connection);
+
+			ret = MHD_NO;
+		}
+
+		if (request_result != NULL) { PQclear(request_result); }
 
 		return ret;
 	}
 	//clinet page has been requested
 	else if (strncmp(url, page_names[2], 7) == 0)
 	{
-		ret = Sending_Response(&response_file, &file_stat, HOME_PAGE_NAME, 0, "Content-Type", MIME_HTML, &response, &connection);
+		username = MHD_basic_auth_get_username_password(connection, &password);
+
+		access_res = DB_Auth_Request('c', username, password, &request_result, &member_id);
+		if (request_result != NULL) { PQclear(request_result); request_result = NULL; }
+
+		if (access_res == EXIT_SUCCESS)
+		{
+			if (((client_page_data[0] = malloc((size_t)cl_private_fields_buf_available_size)) == NULL) ||
+				((client_page_data[1] = malloc((size_t)cl_private_values_buf_available_size)) == NULL))
+			{
+				Iternal_Error_Handling(NULL, &response, &connection);
+
+				return MHD_YES;
+			}
+			((char*)client_page_data[0])[0] = NULL;
+			((char*)client_page_data[1])[0] = NULL;
+
+			if ((DB_Get_Full_Private_Table(member_id, 'c', &request_result) == EXIT_FAILURE) ||
+				(Request_Result_To_String(0, (char*)client_page_data[0], &cl_private_fields_buf_available_size, &request_result) == EXIT_FAILURE) ||
+				(Request_Result_To_String(1, (char*)client_page_data[1], &cl_private_values_buf_available_size, &request_result) == EXIT_FAILURE))
+			{
+				Iternal_Error_Handling(NULL, &response, &connection);
+
+				return MHD_YES;
+			}
+			//reset db_request_buffer!!!!
+
+			ret = Sending_Response(&response_file, &file_stat, CLIENT_PAGE_NAME, member_id, "Content-Type", MIME_HTML, &response, &connection);
+		}
+		else
+		{
+			Iternal_Error_Handling("Wrong client info or Iternal error occured", &response, &connection);
+
+			ret = MHD_YES;
+		}
+
+		if (request_result != NULL) { PQclear(request_result); request_result = NULL; }
 
 		return ret;
 	}
@@ -497,19 +485,23 @@ MHD_Result Answer_To_Connection(
 		}
 		else if (strncmp(header_values, "text/", 5) == 0)
 		{
-			if 		(strncmp(upload_data, "Cl_Prv_Flds", 1) == 0)
+			if 		(strncmp(url, "/res/cl_private_table_fields", 28) == 0)
 			{
 				ret = Sending_Response_From_Buf(
 				client_page_data[0], CLIENT_PRIVATE_TABLE_FIELDS_BUFFER_SIZE - cl_private_fields_buf_available_size,
 				"Content-Type", MIME_TEXT, MHD_RESPMEM_MUST_FREE, &response, &connection );
+
+				cl_private_fields_buf_available_size = CLIENT_PRIVATE_TABLE_FIELDS_BUFFER_SIZE;
 			
 				return ret;
 			}
-			else if (strncmp(upload_data, "Cl_Prv_Vls", 10) == 0)
+			else if (strncmp(url, "/res/cl_private_table_values", 28) == 0)
 			{
 				ret = Sending_Response_From_Buf(
 				client_page_data[1], CLIENT_PRIVATE_TABLE_VALUES_BUFFER_SIZE - cl_private_values_buf_available_size,
 				"Content-Type", MIME_TEXT, MHD_RESPMEM_MUST_FREE, &response, &connection );
+
+				cl_private_values_buf_available_size = CLIENT_PRIVATE_TABLE_VALUES_BUFFER_SIZE;
 			
 				return ret;
 			}
@@ -530,7 +522,7 @@ int main(
 		//checking connetction to data base
 		if (PQstatus(db_connection) != CONNECTION_OK)
 		{	
-			printf("Bad connection\n");
+			printf("Bad connection");
 			getchar();
 
 			return EXIT_FAILURE;
