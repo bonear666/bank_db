@@ -1,25 +1,9 @@
 #define _CRT_SECURE_NO_WARNINGS
-#define _FILE_OFFSET_BITS 64
 
 #include <iostream>
-//#include <stdio.h>
-#include <libpq-fe.h>
-
-#include <sys/types.h>
-#ifndef _WIN32
-#include <sys/select.h>
-#include <sys/socket.h>
-#else
-#include <winsock2.h>
-#endif
-#include <microhttpd.h>
-#include <time.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <string.h>
 #include <stdio.h>
-
-//#include <microhttpd.h>
+#include <libpq-fe.h>
+#include <microhttpd.h>
 
 #define C_STD_ERROR -1
 
@@ -56,7 +40,7 @@ char* db_request_buffer = NULL;
 
 size_t db_request_buffer_size = 0;
 
-char* header_values_buffer= NULL;
+char* header_values_buffer = NULL;
 
 #define CLIENT_PRIVATE_TABLE_FIELDS_BUFFER_SIZE 256
 #define CLIENT_PRIVATE_TABLE_VALUES_BUFFER_SIZE 512
@@ -453,7 +437,6 @@ MHD_Result Answer_To_Connection(
 
 				return MHD_YES;
 			}
-			//reset db_request_buffer!!!!
 
 			ret = Sending_Response(&response_file, &file_stat, CLIENT_PAGE_NAME, member_id, "Content-Type", MIME_HTML, &response, &connection);
 		}
